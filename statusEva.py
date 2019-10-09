@@ -3,6 +3,7 @@
 
 import sys, argparse
 from _datetime import datetime, timedelta, date
+import time
 import os
 from mysql.connector import MySQLConnection, Error
 from collections import OrderedDict
@@ -64,33 +65,43 @@ colls = db.Products
 # всем Петрам делаем фамилию Новосельцев и возраст 25 лет
 #coll.update({"name": "Петр"}, {"surname": "Новосельцев", "age": 25})
 
-if len(sys.argv) < 2:
-    print('Укажите имя .xlsx файла отчета')
-    sys.exit()
-if not sys.argv[1].endswith('.xlsx'):
-    print('Это не .xlsx файл')
-    sys.exit()
 
-wb = openpyxl.load_workbook(filename=sys.argv[1], read_only=True)
-ws = wb[wb.sheetnames[0]]
-ids = []
-column_id = -1
-column_status = -1
-for i, row in enumerate(ws.rows):
-    if not i:
-        for j, cell in enumerate(row):
-            if cell.value == 'UTM_TERM':
-                column_id = j
-            if cell.value == 'APPROVAL':
-                column_status = j
-    else:
-        if column_id < 0 or column_status < 0:
-            print('Нет колонки с id или колонки со статусом')
-            sys.exit()
-        if str(type(row[column_id].value)).find('str') > -1:
-            remote_id = row[column_id].value[row[column_id].value.find('_') + 1:]
-            status = STATUSES[row[column_status].value.upper()]
-            print(remote_id, status)
-            colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
+path = "./"
+# Sort file names with path
+file_list = os.listdir(path)
+full_list = [os.path.join(path, i) for i in file_list if i.startswith('Raiffeisen_Finfort_') and i.endswith('.xlsx')]
+xlsxs = sorted(full_list, key = os.path.getmtime)
+
+for xlsx in xlsxs:
+    wb = openpyxl.load_workbook(filename=xlsx, read_only=True)
+    ws = wb[wb.sheetnames[0]]
+    wbo = openpyxl.Workbook(write_only=True)
+    wso_ish = wbo.create_sheet('Исходный')
+    wso_task = wbo.create_sheet('Задание')
+    wso_rez = wbo.create_sheet('Результат')
+    #ws_rez.append(['Город Агента', 'Юр.лицо Агента', 'ФИО Агента', 'Подразделение', 'Город Клиента', 'ФИО Клиента'])
+
+    ids = []
+    column_id = -1
+    column_status = -1
+    for i, row in enumerate(ws.rows):
+        if not i:
+            for j, cell in enumerate(row):
+                if cell.value == 'UTM_TERM':
+                    column_id = j
+                if cell.value == 'APPROVAL':
+                    column_status = j
+        else:
+            if column_id < 0 or column_status < 0:
+                print('Нет колонки с id или колонки со статусом')
+                sys.exit()
+            if str(type(row[column_id].value)).find('str') > -1:
+                remote_id = row[column_id].value[row[column_id].value.find('_') + 1:]
+                status = STATUSES[row[column_status].value.upper()]
+                print(remote_id, status)
+                colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
+    wbo.save(xlsx.split('Raiffeisen_Finfort_')[0] + time.strftime('%Y-%m-%d_%H-%M', time.gmtime(os.path.getmtime(xlsx)))
+             + '_' + xlsx.split('Raiffeisen_Finfort_')[1])
+    #os.remove(xlsx)
 
 
