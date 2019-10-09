@@ -73,18 +73,23 @@ full_list = [os.path.join(path, i) for i in file_list if i.startswith('Raiffeise
 xlsxs = sorted(full_list, key = os.path.getmtime)
 
 for xlsx in xlsxs:
+    print('\n', xlsx,'\n')
     wb = openpyxl.load_workbook(filename=xlsx, read_only=True)
     ws = wb[wb.sheetnames[0]]
     wbo = openpyxl.Workbook(write_only=True)
     wso_ish = wbo.create_sheet('Исходный')
     wso_task = wbo.create_sheet('Задание')
     wso_rez = wbo.create_sheet('Результат')
-    #ws_rez.append(['Город Агента', 'Юр.лицо Агента', 'ФИО Агента', 'Подразделение', 'Город Клиента', 'ФИО Клиента'])
-
     ids = []
     column_id = -1
     column_status = -1
     for i, row in enumerate(ws.rows):
+        # заполняем вкладку задания
+        fields_task = []
+        for cell in row:
+            fields_task.append(cell.value)
+        wso_task.append(fields_task)
+        # определяем колонку в которой id
         if not i:
             for j, cell in enumerate(row):
                 if cell.value == 'UTM_TERM':
@@ -99,9 +104,33 @@ for xlsx in xlsxs:
                 remote_id = row[column_id].value[row[column_id].value.find('_') + 1:]
                 status = STATUSES[row[column_status].value.upper()]
                 print(remote_id, status)
+                # заполняем вкладку исходника
+                for j, coll in enumerate(colls.find({'remote_id': remote_id})):
+                    if not j:
+                        fields_ish = []
+                        for field in coll.keys():
+                            if str(type(coll.get(field))).find('str') < 0 and str(type(coll.get(field))).find(
+                                    'int') < 0:
+                                fields_ish.append(str(coll.get(field)))
+                            else:
+                                fields_ish.append(coll.get(field))
+                        wso_ish.append(fields_ish)
+                # обновляем
                 colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
-    wbo.save(xlsx.split('Raiffeisen_Finfort_')[0] + time.strftime('%Y-%m-%d_%H-%M', time.gmtime(os.path.getmtime(xlsx)))
-             + '_' + xlsx.split('Raiffeisen_Finfort_')[1])
-    #os.remove(xlsx)
+                # заполняем вкладку результата
+                for j, coll in enumerate(colls.find({'remote_id': remote_id})):
+                    if not j:
+                        fields_rez = []
+                        for field in coll.keys():
+                            if str(type(coll.get(field))).find('str') < 0 and str(type(coll.get(field))).find(
+                                    'int') < 0:
+                                fields_rez.append(str(coll.get(field)))
+                            else:
+                                fields_rez.append(coll.get(field))
+                        wso_rez.append(fields_rez)
+    wbo.save(xlsx.split('Raiffeisen_Finfort_')[0] + 'loaded/' +
+             time.strftime('%Y-%m-%d_%H-%M', time.gmtime(os.path.getmtime(xlsx))) + '_' +
+             xlsx.split('Raiffeisen_Finfort_')[1])
+    os.remove(xlsx)
 
 
