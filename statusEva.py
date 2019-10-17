@@ -16,37 +16,47 @@ from lib import read_config, s
 STATUSES = {
 'BANK REFUSAL': 430,
 'APPROVED': 140,
-'CLIENT REFUSAL': 400,
-'ISSUED': 210}
+'CLIENT REFUSAL': 440,
+'ISSUED': 210,
+'CANCEL': 450,
+'EXPIRED': 460
+}
 
 
 st = """
+DECISION (решение) - тут будет несколько статусов 
+Cancel - закрыта
+Decline - 
+Expired - истек срок действия решения Банка
+Issued - выдан
+Pending - ожидание
+
+нас интересует статус из этого столбца 
+Cancel, Issued,Expired
+
 Bank refusal - Отказ банка
 Approved - Одобрен
 Client refusal - Отказ клиента
 issued - Выдан
 
-NONE = 0;
-QUEUED = 100;
-CONFIRM = 110;
-RETRY = 120;
-PROCESSING = 130;
-APPROVED = 140;
-PRE_APPROVED = 150;
-COMPLETED = 160;
-
-DONE = 200;
-ISSUED = 210;
-DOUBLE_ISSUED = 220;
-ISSUED_CALLCENTER = 230;
-
-DELETED = 400;
-UNKNOWN = 410;
-TRANSACTION_ERROR = 420;
-DENIED = 430;
-
-DEBUG = 500;
-DRAFT = 510;
+NONE	0	Новая заявка
+QUEUED	100	Заявка отправлена в очередь
+CONFIRM	110	Введен СМС код
+RETRY	120	Запрошена повторная СМС
+PROCESSING	130	В процессе
+APPROVED	140	Одобрена
+PRE_APPROVED	150	Предварительно одобрена
+COMPLETED	160	Заявка заполнена
+DONE	200	Завершено
+ISSUED	210	Займ выдан
+DOUBLE_ISSUED	220	Займ выдан повторно
+ISSUED_CALLCENTER	230	Займ выдан через call-центр
+DELETED	400	Удалена
+UNKNOWN	410	Неизвестный статус
+TRANSACTION_ERROR	420	Ошибка выгрузки
+DENIED	430	Отказ
+DEBUG	500	Отладка
+DRAFT	510	Отложена
 """
 def filter_x00(inp):
     inp = s(inp)
@@ -77,75 +87,84 @@ if __name__ == '__main__':
 
     for xlsx in xlsxs:
         print('\n', xlsx,'\n')
-        wb = openpyxl.load_workbook(filename=xlsx, read_only=True)
+        wb = openpyxl.load_workbook(filename=xlsx)
         ws = wb[wb.sheetnames[0]]
         wbo = openpyxl.Workbook(write_only=True)
         wso_ish = wbo.create_sheet('Исходный')
         wso_task = wbo.create_sheet('Задание')
+        wso_skip_id = wbo.create_sheet('Нет id')
+        wso_skip_status = wbo.create_sheet('Нет статуса')
+        wso_double = wbo.create_sheet('Два id в одной строке')
         wso_rez = wbo.create_sheet('Результат')
         ids = []
         column_utm_source = -1
         column_approval = -1
         column_remote_id = -1
         column_result = -1
-        for i, row in enumerate(ws.rows):
+        column_decision = -1
+        for i, row in enumerate(ws.values):
             # заполняем вкладку задания
             fields_task = []
             for cell in row:
-                fields_task.append(cell.value)
+                fields_task.append(cell)
             wso_task.append(fields_task)
             # определяем колонку в которой id
             if not i:
+                wso_skip_status.append(row)
+                wso_skip_id.append(row)
+                wso_double.append(row)
                 for j, cell in enumerate(row):
-                    if cell.value == 'UTM_TERM':
+                    if str(cell).upper() == 'UTM_TERM':
                         column_utm_source = j
-                    if cell.value == 'APPROVAL':
+                    if str(cell).upper() == 'APPROVAL':
                         column_approval = j
-                    if cell.value == 'remote_id':
+                    if str(cell).upper() == 'REMOTE_ID':
                         column_remote_id = j
-                    if cell.value == 'RESULT':
+                    if cell == 'RESULT':
                         column_result = j
+                    if cell == 'DECISION':
+                        column_decision = j
             else:
                 # Если нет нужной информации - выходим
-                if (column_utm_source < 0 and column_remote_id < 0) or (column_approval < 0 and column_result < 0):
+                if (column_utm_source < 0 and column_remote_id < 0) or (column_approval < 0 and column_result < 0
+                                                                        and column_decision < 0):
                     print('Нет колонки с id или колонки со статусом')
                     sys.exit()
-
                 # Если не смогли расшифровать статус - пропускаем строчку
-                if column_approval > -1 \
-                        and str(type(row[column_approval].value)).find('str') > -1 \
-                        and len(s(row[column_approval].value.strip())):
-                    status = STATUSES[filter_x00(row[column_approval].value).upper().strip()]
-                elif column_result > -1 \
-                        and str(type(row[column_result].value)).find('str') > -1\
-                        and len(filter_x00(row[column_result].value.strip())):
-                    status = STATUSES[filter_x00(row[column_result].value).upper().strip()]
-                else:
-                    prints = ''
-                    if column_approval > -1:
-                        prints += str(row[column_approval].value).strip() + ' '
-                    if column_result > -1:
-                        prints += str(row[column_result].value).strip()
-                    #print('В строке', i,'в колонке со статусом некоректная информация (', prints, ') - пропускаем строку')
+                status = -1
+                if column_decision > -1:
+                    status = STATUSES.get(filter_x00(row[column_decision]).upper().strip(), -1)
+                if status < 0 and column_approval > -1:
+                    status = STATUSES.get(filter_x00(row[column_approval]).upper().strip(), -1)
+                if status < 0 and column_result > -1:
+                    status = STATUSES.get(filter_x00(row[column_result]).upper().strip(), -1)
+                if status < 0: # Нет статуса
+                    wso_skip_status.append(row)
                     continue
-
-                # Если не смогли расшифровать id - пропускаем строчку
-                if column_utm_source > -1 \
-                        and str(type(row[column_utm_source].value)).find('str') > -1 \
-                        and len(filter_x00(row[column_utm_source].value)[filter_x00(row[column_utm_source].value).find('_') + 1:].strip()) == 36:
-                    remote_id = filter_x00(row[column_utm_source].value)[filter_x00(row[column_utm_source].value).find('_') + 1:].strip()
-                elif column_remote_id > -1 \
-                        and str(type(row[column_remote_id].value)).find('str') > -1\
-                        and len(filter_x00(row[column_remote_id].value.strip())) == 36:
-                    remote_id = row[column_remote_id].value.strip()
-                else:
-                    prints = ''
-                    if column_utm_source > -1:
-                        prints += str(row[column_utm_source].value).strip() + ' '
-                    if column_remote_id > -1:
-                        prints += str(row[column_remote_id].value).strip()
-                    print('В строке', i,'в колонке с id некоректная информация (', prints, ') - пропускаем строку')
+                remote_id = ''
+                remote_id_utm = ''
+                remote_id_remote = ''
+                if column_utm_source > -1 and str(type(row[column_utm_source])).find('str') > -1:
+                    agent2remote_id = row[column_utm_source]
+                    if len(filter_x00(agent2remote_id)[filter_x00(agent2remote_id).find('_') + 1:].strip()) == 36:
+                        remote_id_utm = filter_x00(agent2remote_id)[filter_x00(agent2remote_id).find('_') + 1:].strip()
+                        if not colls.find({'remote_id': remote_id_utm}).count():
+                            remote_id_utm = ''
+                if column_remote_id > -1 and str(type(row[column_remote_id])).find('str') > -1:
+                    if len(filter_x00(row[column_remote_id].strip())) == 36:
+                        remote_id_remote = row[column_remote_id].strip()
+                        if not colls.find({'remote_id': remote_id_remote}).count():
+                            remote_id_remote = ''
+                if remote_id_remote == '' and remote_id_utm == '': # Нет id
+                    wso_skip_id.append(row)
                     continue
+                elif remote_id_remote and remote_id_utm: # Два id в одной строке
+                    wso_double.append(row)
+                    continue
+                elif remote_id_utm:
+                    remote_id = remote_id_utm
+                elif remote_id_remote:
+                    remote_id = remote_id_remote
                 # заполняем вкладку исходника
                 for j, coll in enumerate(colls.find({'remote_id': remote_id})):
                     if not j:
@@ -158,7 +177,7 @@ if __name__ == '__main__':
                                 fields_ish.append(coll.get(field))
                         wso_ish.append(fields_ish)
                 # обновляем
-                colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
+                #colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
                 # заполняем вкладку результата
                 for j, coll in enumerate(colls.find({'remote_id': remote_id})):
                     if not j:
