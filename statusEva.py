@@ -11,7 +11,7 @@ import openpyxl
 from pymongo import MongoClient
 import psycopg2
 
-from lib import read_config, s
+from lib import read_config, s, l
 
 STATUSES = {
 'BANK REFUSAL': 430,
@@ -19,7 +19,8 @@ STATUSES = {
 'CLIENT REFUSAL': 440,
 'ISSUED': 210,
 'CANCEL': 450,
-'EXPIRED': 460
+'EXPIRED': 460,
+'STATUS_HAS_ERROR': 470
 }
 
 
@@ -30,6 +31,8 @@ Decline -
 Expired - истек срок действия решения Банка
 Issued - выдан
 Pending - ожидание
+
+STATUS_HAS_ERROR => 'Ошибка в заявке'
 
 нас интересует статус из этого столбца 
 Cancel, Issued,Expired
@@ -94,7 +97,7 @@ if __name__ == '__main__':
         wso_task = wbo.create_sheet('Задание')
         wso_skip_id = wbo.create_sheet('Нет id')
         wso_skip_status = wbo.create_sheet('Нет статуса')
-        wso_double = wbo.create_sheet('Два id в одной строке')
+        #wso_double = wbo.create_sheet('Два разных id в одной строке')
         wso_rez = wbo.create_sheet('Результат')
         ids = []
         column_utm_source = -1
@@ -102,6 +105,7 @@ if __name__ == '__main__':
         column_remote_id = -1
         column_result = -1
         column_decision = -1
+        column_deal = -1
         for i, row in enumerate(ws.values):
             # заполняем вкладку задания
             fields_task = []
@@ -112,7 +116,7 @@ if __name__ == '__main__':
             if not i:
                 wso_skip_status.append(row)
                 wso_skip_id.append(row)
-                wso_double.append(row)
+                #wso_double.append(row)
                 for j, cell in enumerate(row):
                     if str(cell).upper() == 'UTM_TERM':
                         column_utm_source = j
@@ -120,24 +124,29 @@ if __name__ == '__main__':
                         column_approval = j
                     if str(cell).upper() == 'REMOTE_ID':
                         column_remote_id = j
-                    if cell == 'RESULT':
+                    if str(cell).upper() == 'RESULT':
                         column_result = j
-                    if cell == 'DECISION':
+                    if str(cell).upper() == 'DECISION':
                         column_decision = j
+                    if str(cell).upper() == 'DEAL':
+                        column_deal = j
             else:
                 # Если нет нужной информации - выходим
                 if (column_utm_source < 0 and column_remote_id < 0) or (column_approval < 0 and column_result < 0
-                                                                        and column_decision < 0):
+                                                                        and column_decision < 0 and column_deal < 0):
                     print('Нет колонки с id или колонки со статусом')
                     sys.exit()
                 # Если не смогли расшифровать статус - пропускаем строчку
                 status = -1
-                if column_decision > -1:
+                if column_deal > -1:
+                    if int(float(filter_x00(row[column_deal]).upper().strip())) == 1:
+                        status = STATUSES['ISSUED']
+                if column_decision > -1 and status < 0:
                     status = STATUSES.get(filter_x00(row[column_decision]).upper().strip(), -1)
-                if status < 0 and column_approval > -1:
-                    status = STATUSES.get(filter_x00(row[column_approval]).upper().strip(), -1)
-                if status < 0 and column_result > -1:
+                if column_result > -1 and status < 0:
                     status = STATUSES.get(filter_x00(row[column_result]).upper().strip(), -1)
+                if column_approval > -1 and status < 0:
+                    status = STATUSES.get(filter_x00(row[column_approval]).upper().strip(), -1)
                 if status < 0: # Нет статуса
                     wso_skip_status.append(row)
                     continue
@@ -158,9 +167,9 @@ if __name__ == '__main__':
                 if remote_id_remote == '' and remote_id_utm == '': # Нет id
                     wso_skip_id.append(row)
                     continue
-                elif remote_id_remote and remote_id_utm: # Два id в одной строке
-                    wso_double.append(row)
-                    continue
+                elif remote_id_remote and remote_id_utm and remote_id_remote != remote_id_utm:
+                    # Два неодинаковых id в одной строке - берём remote_id_utm
+                    remote_id = remote_id_utm
                 elif remote_id_utm:
                     remote_id = remote_id_utm
                 elif remote_id_remote:
@@ -177,7 +186,7 @@ if __name__ == '__main__':
                                 fields_ish.append(coll.get(field))
                         wso_ish.append(fields_ish)
                 # обновляем
-                #colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
+                colls.update({'remote_id': remote_id}, {'$set': {'state_code': status}})
                 # заполняем вкладку результата
                 for j, coll in enumerate(colls.find({'remote_id': remote_id})):
                     if not j:
