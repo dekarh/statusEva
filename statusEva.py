@@ -107,13 +107,10 @@ if __name__ == '__main__':
         column_decision = -1
         column_deal = -1
         for i, row in enumerate(ws.values):
-            # заполняем вкладку задания
-            fields_task = []
-            for cell in row:
-                fields_task.append(cell)
-            wso_task.append(fields_task)
             # определяем колонку в которой id
             if not i:
+                # заполняем первую строчку вкладок Задание, Нет id, Нет статуса
+                wso_task.append(row)
                 wso_skip_status.append(row)
                 wso_skip_id.append(row)
                 #wso_double.append(row)
@@ -166,6 +163,8 @@ if __name__ == '__main__':
                             remote_id_remote = ''
                 if remote_id_remote == '' and remote_id_utm == '': # Нет id
                     wso_skip_id.append(row)
+                    row += ('не определился',)
+                    wso_task.append(row)
                     continue
                 elif remote_id_remote and remote_id_utm and remote_id_remote != remote_id_utm:
                     # Два неодинаковых id в одной строке - берём remote_id_utm
@@ -174,7 +173,10 @@ if __name__ == '__main__':
                     remote_id = remote_id_utm
                 elif remote_id_remote:
                     remote_id = remote_id_remote
-                # заполняем вкладку исходника
+                # заполняем вкладку Задание, добавляя туда remote_id
+                row += (remote_id,)
+                wso_task.append(row)
+                # заполняем вкладку Исходный
                 for j, coll in enumerate(colls.find({'remote_id': remote_id})):
                     if not j:
                         fields_ish = []
